@@ -1,0 +1,116 @@
+{{- if and .Values.helmTest.enabled .Values.rpc.http.enabled }}
+{{- include "besu-sandbox.validateGenesis" . -}}
+{{- $rpcSvc := ternary (include "besu-sandbox.unifiedRpcServiceName" .) (printf "%s-validator1" .Release.Name) (and .Values.unifiedRpcService.enabled .Values.rpc.http.enabled) }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-test-connection
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: helm-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  {{- with .Values.node.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: test-connection
+      image: {{ .Values.helmTest.image }}
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: RPC_HOST
+          value: {{ $rpcSvc }}.{{ .Release.Namespace }}.svc.cluster.local
+        - name: RPC_PORT
+          value: {{ .Values.rpc.http.port | quote }}
+        - name: EXPECTED_PEERS_HEX
+          value: {{ printf "0x%x" (sub (len .Values.validators) 1) | quote }}
+        - name: EXPECTED_VALIDATOR_COUNT
+          value: {{ len .Values.validators | quote }}
+        - name: VALIDATORS_RPC_METHOD
+          value: {{ include "besu-sandbox.consensusValidatorsRpcMethod" . | quote }}
+        - name: BLOCK_SAMPLE_INTERVAL_SECONDS
+          value: {{ .Values.helmTest.blockSampleIntervalSeconds | quote }}
+        - name: PEER_COUNT_RETRIES
+          value: {{ .Values.helmTest.peerCountRetries | quote }}
+        - name: PEER_COUNT_RETRY_DELAY_SECONDS
+          value: {{ .Values.helmTest.peerCountRetryDelaySeconds | quote }}
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          set -eu
+          RPC_URL="http://${RPC_HOST}:${RPC_PORT}"
+
+          rpc() {
+            curl -sf -X POST "${RPC_URL}" \
+              -H 'Content-Type: application/json' \
+              --data "{\"jsonrpc\":\"2.0\",\"method\":\"$1\",\"params\":$2,\"id\":1}"
+          }
+
+          json_string_result() {
+            echo "$1" | grep -o '"result":"[^"]*"' | head -1 | cut -d'"' -f4
+          }
+
+          echo "Testing Besu JSON-RPC at ${RPC_URL}"
+
+          attempt=0
+          peers=""
+          while [ "${attempt}" -lt "${PEER_COUNT_RETRIES}" ]; do
+            resp="$(rpc net_peerCount '[]')"
+            peers="$(json_string_result "${resp}")"
+            if [ "${peers}" = "${EXPECTED_PEERS_HEX}" ]; then
+              echo "net_peerCount OK: ${peers}"
+              break
+            fi
+            attempt=$((attempt + 1))
+            echo "net_peerCount ${peers} (expected ${EXPECTED_PEERS_HEX}), retry ${attempt}/${PEER_COUNT_RETRIES}..."
+            sleep "${PEER_COUNT_RETRY_DELAY_SECONDS}"
+          done
+          if [ "${peers}" != "${EXPECTED_PEERS_HEX}" ]; then
+            echo "FAIL: net_peerCount is ${peers}, expected ${EXPECTED_PEERS_HEX}"
+            exit 1
+          fi
+
+          attempt=0
+          block1=0
+          while [ "${attempt}" -lt "${PEER_COUNT_RETRIES}" ]; do
+            block1_hex="$(json_string_result "$(rpc eth_blockNumber '[]')")"
+            block1="$(printf '%d' "${block1_hex}")"
+            if [ "${block1}" -gt 0 ]; then
+              echo "eth_blockNumber baseline: ${block1_hex} (${block1})"
+              break
+            fi
+            attempt=$((attempt + 1))
+            echo "eth_blockNumber is 0, retry ${attempt}/${PEER_COUNT_RETRIES}..."
+            sleep "${PEER_COUNT_RETRY_DELAY_SECONDS}"
+          done
+          if [ "${block1}" -eq 0 ]; then
+            echo "FAIL: block height is still 0 after retries — QBFT is not producing blocks"
+            exit 1
+          fi
+          sleep "${BLOCK_SAMPLE_INTERVAL_SECONDS}"
+          block2_hex="$(json_string_result "$(rpc eth_blockNumber '[]')")"
+          block2="$(printf '%d' "${block2_hex}")"
+          echo "eth_blockNumber sample 2: ${block2_hex} (${block2})"
+          if [ "${block2}" -le "${block1}" ]; then
+            echo "FAIL: block height did not increase (${block1} -> ${block2}) after ${BLOCK_SAMPLE_INTERVAL_SECONDS}s"
+            exit 1
+          fi
+          echo "block production OK: ${block1} -> ${block2}"
+
+          validators_resp="$(rpc "${VALIDATORS_RPC_METHOD}" '["latest"]')"
+          validator_count="$(echo "${validators_resp}" | grep -oE '0x[0-9a-fA-F]{40}' | wc -l | tr -d ' ')"
+          echo "${VALIDATORS_RPC_METHOD}: ${validator_count} validator(s)"
+          if [ "${validator_count}" -ne "${EXPECTED_VALIDATOR_COUNT}" ]; then
+            echo "FAIL: expected ${EXPECTED_VALIDATOR_COUNT} validators, got ${validator_count}"
+            echo "Response: ${validators_resp}"
+            exit 1
+          fi
+          echo "validator set OK"
+          echo "All helm test checks passed"
+{{- end }}

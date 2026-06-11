@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config-toml
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+data:
+  static-nodes.json: |
+{{ include "besu-sandbox.staticNodesJson" . | indent 4 }}
+
+  config.toml: |-
+    # Every possible CLI should be in this file.
+    #
+    # Please use a plausible value, besu has to at least be able to parse it.
+    # If it is a multi-valued CLI make it a TOML array.
+    # If it is a number or boolean make it a number or boolean
+    # All other config options are strings, and must be quoted.
+
+    # Node Information
+    data-path="/data"
+    genesis-file="/etc/genesis/genesis.json"
+    static-nodes-file="/etc/besu/static-nodes.json"
+
+    # TODO : insert as command line & mount Volume
+    # rpc-http-authentication-credentials-file="none"
+    # TODO : insert as command line & mount Volume
+    # rpc-ws-authentication-credentials-file="none"
+    logging="INFO"
+
+    # Free gas — node-level floor (Gate 2; see values.yaml genesis comments).
+    # Always 0 in this sandbox. When genesis.london=true, genesis also sets
+    # zeroBaseFee (Gate 1); both must be zero for free gas on a 1559 chain.
+    min-gas-price=0
+    # Transaction Pool
+    # tx-pool-retention-hours=999
+    # tx-pool-max-size=1024
+
+    # P2P network
+    p2p-enabled=true
+    discovery-enabled=true
+    #p2p-host="0.0.0.0"
+    p2p-port=30303
+    max-peers=25
+    host-allowlist=["*"]
+
+    # JSON-RPC (HTTP) — rpc-http-api derived from consensus={{ include "besu-sandbox.consensus" . }}
+    rpc-http-enabled={{ .Values.rpc.http.enabled }}
+    rpc-http-host={{ .Values.rpc.http.host | quote }}
+    rpc-http-port={{ .Values.rpc.http.port }}
+    # IBFT 2.0:  rpc-http-api=["DEBUG","ETH","ADMIN","WEB3","IBFT","NET","EEA"]
+    # QBFT:      rpc-http-api=["DEBUG","ETH","ADMIN","WEB3","QBFT","NET"]
+    rpc-http-api={{ include "besu-sandbox.rpcHttpApi" . }}
+    rpc-http-cors-origins={{ .Values.rpc.http.corsOrigins | toJson }}
+    rpc-http-authentication-enabled=false
+
+    # GRAPHQL-RPC
+    graphql-http-enabled={{ .Values.rpc.graphql.enabled }}
+    graphql-http-host={{ .Values.rpc.graphql.host | quote }}
+    graphql-http-port={{ .Values.rpc.graphql.port }}
+    graphql-http-cors-origins={{ .Values.rpc.graphql.corsOrigins | toJson }}
+
+    # WebSockets API — rpc-ws-api derived from consensus={{ include "besu-sandbox.consensus" . }}
+    rpc-ws-enabled={{ .Values.rpc.ws.enabled }}
+    rpc-ws-host={{ .Values.rpc.ws.host | quote }}
+    rpc-ws-port={{ .Values.rpc.ws.port }}
+    # IBFT 2.0:  rpc-ws-api=["DEBUG","ETH","ADMIN","WEB3","IBFT","NET","EEA"]
+    # QBFT:      rpc-ws-api=["DEBUG","ETH","ADMIN","WEB3","QBFT","NET"]
+    rpc-ws-api={{ include "besu-sandbox.rpcWsApi" . }}
+    rpc-ws-authentication-enabled=false
+
+    # Metrics
+    metrics-enabled=true
+    metrics-host="0.0.0.0"
+    metrics-port=9545
+
+    # Permissioning
+    #permissions-nodes-config-file-enabled=false
+    #permissions-nodes-config-file="/etc/permissions/nodes-allowlist.yml"

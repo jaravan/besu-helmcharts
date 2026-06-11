@@ -1,0 +1,21 @@
+apiVersion: v2
+name: besu-sandbox
+description: >
+  A four-validator Hyperledger Besu private network for Kubernetes — a local
+  sandbox (not production) with QBFT consensus by default, switchable to IBFT 2.0
+  for benchmarks.
+type: application
+version: 0.1.0
+appVersion: "26.6.0"
+home: https://github.com/jaravan/besu-helmcharts/tree/main/charts/besu-sandbox
+sources:
+  - https://github.com/jaravan/besu-helmcharts
+keywords:
+  - besu
+  - qbft
+  - ethereum
+  - consortium
+maintainers:
+  - name: John Aravanis
+    email: aravanis.yannis@gmail.com
+icon: https://besu.hyperledger.org/en/latest/favicon.ico

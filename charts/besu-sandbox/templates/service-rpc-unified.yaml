@@ -1,0 +1,29 @@
+{{- if and .Values.unifiedRpcService.enabled (or .Values.rpc.http.enabled .Values.rpc.ws.enabled) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "besu-sandbox.unifiedRpcServiceName" . }}
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: unified-rpc
+spec:
+  type: ClusterIP
+  # Round-robin across all Ready validator pods — not a single validator like
+  # <release>-validator1..N (those expose P2P + per-node RPC for debugging).
+  selector:
+    {{- include "besu-sandbox.validatorPodSelectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.rpc.http.enabled }}
+    - port: {{ .Values.rpc.http.port }}
+      targetPort: json-rpc
+      protocol: TCP
+      name: json-rpc
+    {{- end }}
+    {{- if .Values.rpc.ws.enabled }}
+    - port: {{ .Values.rpc.ws.port }}
+      targetPort: ws
+      protocol: TCP
+      name: ws
+    {{- end }}
+{{- end }}

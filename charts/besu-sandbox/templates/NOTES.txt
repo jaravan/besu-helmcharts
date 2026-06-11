@@ -1,0 +1,113 @@
+Thanks for installing {{ .Chart.Name }} ({{ .Chart.Name }}-{{ .Chart.Version }}, Besu {{ .Chart.AppVersion }}).
+
+Release : {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+A {{ include "besu-sandbox.validatorCount" . }}-validator {{ include "besu-sandbox.consensusLabel" . }} network is starting up.
+{{- if eq (include "besu-sandbox.genesisLondon" .) "true" }}
+
+Genesis: London (EIP-1559) active from block 0 with zeroBaseFee — MetaMask will
+use the 1559 fee UI (base fee shows 0).
+{{- else }}
+
+Genesis: pre-London — free gas via min-gas-price=0 only; MetaMask uses legacy
+gasPrice UI. Enable genesis.london=true for the 1559 fee-screen demo mode.
+{{- end }}
+It may take a moment for all validators to peer and begin producing blocks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Connection bundle (after port-forward — step 2 below)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ Chain ID     : 1337 (0x539)
+ Currency     : ETH (test / sandbox only)
+ Gas          : free (min-gas-price=0{{- if eq (include "besu-sandbox.genesisLondon" .) "true" }}; zeroBaseFee when London enabled{{- end }})
+ RPC (HTTP)   : http://127.0.0.1:{{ .Values.rpc.http.port }}
+{{- if .Values.rpc.ws.enabled }}
+ RPC (WS)     : ws://127.0.0.1:{{ .Values.rpc.ws.port }}
+{{- end }}
+
+ Pre-funded dev accounts (deterministic — same on every install):
+
+   Address                                    Private key (sandbox only!)
+   -----------------------------------------  ----------------------------------------------------------------
+   0x57f2faa6a15f9ae1e91a54cc03e41fcb12027c47  fc96a9e5a0733664dd4f8c48f163e0f3c71805234bd97637a586ca0bcb0169f7
+   0xe2e0352c8337aaa764f15b47635694f13fb3547d  ba45bb6bbddcbacc159894e4b6a74457fd9b29fe173424729993c8c363d72293
+   0x8bedd2a8aa80c8fed92773466886e344b12db1cc  40e478932b0d6e6c2dc9504b3856c1ee4bf5a919764aca44604c5fe428f0433e
+
+ MetaMask → Add network → Custom:
+
+   Network name              Besu Sandbox
+   New RPC URL               http://127.0.0.1:{{ .Values.rpc.http.port }}
+   Chain ID                  1337
+   Currency symbol           ETH
+
+ cast (after port-forward):
+
+   export RPC_URL=http://127.0.0.1:{{ .Values.rpc.http.port }}
+   cast chain-id --rpc-url $RPC_URL
+   cast balance 0x57f2faa6a15f9ae1e91a54cc03e41fcb12027c47 --rpc-url $RPC_URL
+
+ Confirm the network is alive (blocks advancing):
+
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --timeout 300s --logs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Watch the validators come up:
+
+   kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ .Release.Name }}-validator1
+   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/part-of=besu-sandbox
+
+2. Port-forward the JSON-RPC endpoint to your machine:
+{{- if and .Values.unifiedRpcService.enabled .Values.rpc.http.enabled }}
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "besu-sandbox.unifiedRpcServiceName" . }} {{ .Values.rpc.http.port }}:{{ .Values.rpc.http.port }}
+
+   svc/{{ include "besu-sandbox.unifiedRpcServiceName" . }} is the unified round-robin RPC entry
+   (all Ready validators). Per-validator services {{ .Release.Name }}-validator1..{{ .Release.Name }}-validator{{ include "besu-sandbox.validatorCount" . }} target one node each — use those for P2P/debugging only.
+{{- else if .Values.rpc.http.enabled }}
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-validator1 {{ .Values.rpc.http.port }}:{{ .Values.rpc.http.port }}
+{{- end }}
+{{- if and .Values.unifiedRpcService.enabled .Values.rpc.ws.enabled }}
+
+   WebSocket JSON-RPC (eth_subscribe / watchContractEvent) on port {{ .Values.rpc.ws.port }}:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "besu-sandbox.unifiedRpcServiceName" . }} {{ .Values.rpc.ws.port }}:{{ .Values.rpc.ws.port }}
+{{- else if .Values.rpc.ws.enabled }}
+
+   WebSocket JSON-RPC (eth_subscribe / watchContractEvent) on port {{ .Values.rpc.ws.port }}:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-validator1 {{ .Values.rpc.ws.port }}:{{ .Values.rpc.ws.port }}
+{{- end }}
+
+3. With the port-forward running, query the node from another shell.
+
+   Peer count — each node should report {{ printf "0x%x" (sub (len .Values.validators) 1) }} ({{ len .Values.validators }} validators = {{ sub (len .Values.validators) 1 }} peers each):
+
+   curl -s -X POST http://localhost:8545 \
+     -H 'Content-Type: application/json' \
+     --data '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}'
+
+   Block number — run twice, it should increase as blocks are produced:
+
+   curl -s -X POST http://localhost:8545 \
+     -H 'Content-Type: application/json' \
+     --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+
+   Active {{ include "besu-sandbox.consensusLabel" . }} validator set — expect {{ include "besu-sandbox.validatorCount" . }} addresses:
+
+   curl -s -X POST http://localhost:8545 \
+     -H 'Content-Type: application/json' \
+     --data '{"jsonrpc":"2.0","method":"{{ include "besu-sandbox.consensusValidatorsRpcMethod" . }}","params":["latest"],"id":1}'
+
+4. Run the automated in-cluster test (optional — does not run on install/upgrade):
+
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --timeout 300s --logs
+
+   Asserts peer count, increasing block height (two eth_blockNumber samples), and
+   the active {{ include "besu-sandbox.consensusLabel" . }} validator set. See the
+   chart README § "Automated network test (helm test)".
+
+Run `helm get notes {{ .Release.Name }} -n {{ .Release.Namespace }}` to print these hints again.

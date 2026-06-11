@@ -1,0 +1,52 @@
+{{- include "besu-sandbox.validateGenesis" . -}}
+{{/*
+  genesis.json — londonBlock / zeroBaseFee are injected when genesis.london=true
+  (see values.yaml comments).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-genesis
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+data:
+  genesis.json: |-
+    {
+      "config": {
+        "chainId": 1337,
+        "constantinoplefixblock": 0,
+        {{- if eq (include "besu-sandbox.genesisLondon" .) "true" }}
+        "londonBlock": 0,
+        "zeroBaseFee": true,
+        {{- end }}
+        "{{ include "besu-sandbox.consensusGenesisKey" . }}": {
+          "blockperiodseconds": {{ .Values.consensusConfig.blockperiodseconds }},
+          "epochlength": {{ .Values.consensusConfig.epochlength }},
+          "requesttimeoutseconds": {{ .Values.consensusConfig.requesttimeoutseconds }}
+        }
+      },
+      "nonce": "0x0",
+      "timestamp": "0x58ee40ba",
+      "gasLimit": "0xf7b760",
+      "difficulty": "0x1",
+      "mixHash": "0x63746963616c2062797a616e74696e65206661756c7420746f6c6572616e6365",
+      "coinbase": "0x0000000000000000000000000000000000000000",
+      "alloc": {
+        "57f2faa6a15f9ae1e91a54cc03e41fcb12027c47": {
+          "privateKey": "fc96a9e5a0733664dd4f8c48f163e0f3c71805234bd97637a586ca0bcb0169f7",
+          "comment": "private key and this comment are ignored.  In a real chain, the private key should NOT be stored",
+          "balance": "0xad78ebc5ac6200000"
+        },
+        "e2e0352c8337aaa764f15b47635694f13fb3547d": {
+          "privateKey": "ba45bb6bbddcbacc159894e4b6a74457fd9b29fe173424729993c8c363d72293",
+          "comment": "private key and this comment are ignored.  In a real chain, the private key should NOT be stored",
+          "balance": "90000000000000000000000"
+        },
+        "8bedd2a8aa80c8fed92773466886e344b12db1cc": {
+          "privateKey": "40e478932b0d6e6c2dc9504b3856c1ee4bf5a919764aca44604c5fe428f0433e",
+          "comment": "private key and this comment are ignored.  In a real chain, the private key should NOT be stored",
+          "balance": "90000000000000000000000"
+        }
+      },
+      "extraData": "{{ include "besu-sandbox.consensusExtraData" . }}"
+    }

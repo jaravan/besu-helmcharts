@@ -1,0 +1,47 @@
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-validators
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "besu-sandbox.validatorPodSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-namespace only — RPC, P2P, metrics, helm test. Cross-namespace
+    # traffic is denied unless you add extraManifests (see values.yaml).
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 30303
+        - protocol: UDP
+          port: 30303
+        - protocol: TCP
+          port: 8545
+        - protocol: TCP
+          port: 8546
+        - protocol: TCP
+          port: 9545
+  egress:
+    # Validator mesh + init-container boot waits (curl validator1:8545).
+    - to:
+        - podSelector: {}
+    # DNS — required for *.svc.cluster.local peering and service discovery.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

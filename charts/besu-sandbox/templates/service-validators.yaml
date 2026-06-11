@@ -1,0 +1,43 @@
+{{- range $i, $v := .Values.validators }}
+{{- $n := add $i 1 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-validator{{ $n }}
+  labels:
+    app: {{ $.Release.Name }}-validator{{ $n }}
+    app.kubernetes.io/component: validator
+    {{- include "besu-sandbox.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $.Release.Name }}-validator{{ $n }}
+  ports:
+    - port: 9545
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: 30303
+      targetPort: 30303
+      protocol: UDP
+      name: discovery
+    - port: 30303
+      targetPort: 30303
+      protocol: TCP
+      name: rlpx
+    - port: {{ $.Values.rpc.http.port }}
+      targetPort: json-rpc
+      protocol: TCP
+      name: json-rpc
+    - port: {{ $.Values.rpc.ws.port }}
+      targetPort: ws
+      protocol: TCP
+      name: ws
+    {{- if $.Values.rpc.graphql.enabled }}
+    - port: {{ $.Values.rpc.graphql.port }}
+      targetPort: {{ $.Values.rpc.graphql.port }}
+      protocol: TCP
+      name: graphql
+    {{- end }}
+{{- end }}

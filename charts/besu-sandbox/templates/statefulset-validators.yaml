@@ -1,0 +1,215 @@
+{{- include "besu-sandbox.validateGenesis" $ -}}
+{{- range $i, $v := $.Values.validators }}
+{{- $n := add $i 1 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $.Release.Name }}-validator{{ $n }}-sa
+  labels:
+    {{- include "besu-sandbox.labels" $ | nindent 4 }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Name }}-validator{{ $n }}-key-read-role
+  labels:
+    {{- include "besu-sandbox.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ include "besu-sandbox.validatorKeySecretName" (dict "root" $ "n" $n) }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-validator{{ $n }}-rb
+  labels:
+    {{- include "besu-sandbox.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Release.Name }}-validator{{ $n }}-key-read-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Release.Name }}-validator{{ $n }}-sa
+    namespace: {{ $.Release.Namespace }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $.Release.Name }}-validator{{ $n }}
+  labels:
+    app: {{ $.Release.Name }}-validator{{ $n }}
+    {{- include "besu-sandbox.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $.Release.Name }}-validator{{ $n }}
+  serviceName: {{ $.Release.Name }}-validator{{ $n }}
+{{- if $.Values.node.storage.persistence }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "besu-sandbox.labels" $ | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml ($.Values.node.storage.accessModes | default (list "ReadWriteOnce")) | nindent 10 }}
+        {{- with $.Values.node.storage.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $.Values.node.storage.size }}
+{{- end }}
+  template:
+    metadata:
+      labels:
+        app: {{ $.Release.Name }}-validator{{ $n }}
+        app.kubernetes.io/component: validator
+        {{- include "besu-sandbox.labels" $ | nindent 8 }}
+      {{- if not $.Values.serviceMonitor.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9545"
+        prometheus.io/path: "/metrics"
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $.Release.Name }}-validator{{ $n }}-sa
+      {{- with $.Values.node.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "besu-sandbox.validatorAffinity" $ | nindent 6 }}
+      {{- with $.Values.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if gt $n 1 }}
+      initContainers:
+        - name: init-bootnode
+          image: {{ $.Values.node.initBootnode.image }}
+          imagePullPolicy: {{ $.Values.node.initBootnode.pullPolicy }}
+          {{- with $.Values.node.initBootnode.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - "sh"
+            - "-c"
+            - "curl -X GET --connect-timeout 30 --max-time 10 --retry 6 --retry-delay 0 --retry-max-time 300 {{ $.Release.Name }}-validator1.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.rpc.http.port }}/liveness"
+      {{- end }}
+      containers:
+        - name: {{ $.Release.Name }}-validator{{ $n }}
+          image: {{ $.Values.node.image.repository }}:{{ include "besu-sandbox.imageTag" $ }}
+          imagePullPolicy: {{ $.Values.node.image.pullPolicy }}
+          {{- with $.Values.node.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BESU_P2P_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: key
+              mountPath: /secrets
+              readOnly: true
+            - name: genesis-config
+              mountPath: /etc/genesis
+              readOnly: true
+            - name: config-toml
+              mountPath: /etc/besu
+              readOnly: true
+            - name: node-permissions
+              mountPath: /etc/permissions
+            - name: data
+              mountPath: /data
+          ports:
+            - containerPort: 8545
+              name: json-rpc
+              protocol: TCP
+            - containerPort: 8546
+              name: ws
+              protocol: TCP
+            {{- if $.Values.rpc.graphql.enabled }}
+            - containerPort: {{ $.Values.rpc.graphql.port }}
+              name: graphql
+              protocol: TCP
+            {{- end }}
+            - containerPort: 9545
+              name: metrics
+              protocol: TCP
+            - containerPort: 30303
+              name: rlpx
+              protocol: TCP
+            - containerPort: 30303
+              name: discovery
+              protocol: UDP
+          {{- with $.Values.node.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.node.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.node.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              exec /opt/besu/bin/besu \
+                --node-private-key-file=/secrets/nodekey \
+                --config-file=/etc/besu/config.toml \
+{{- if $.Values.p2p.xdnsEnabled }}
+                --Xdns-enabled=true \
+{{- end }}
+{{- if $.Values.p2p.xdnsUpdateEnabled }}
+                --Xdns-update-enabled=true \
+{{- end }}
+                --bootnodes={{ include "besu-sandbox.bootnodes" $ }}
+      volumes:
+        - name: key
+          secret:
+            secretName: {{ include "besu-sandbox.validatorKeySecretName" (dict "root" $ "n" $n) }}
+        - name: genesis-config
+          configMap:
+            name: {{ $.Release.Name }}-genesis
+        - name: config-toml
+          configMap:
+            name: {{ $.Release.Name }}-config-toml
+        - name: node-permissions
+          configMap:
+            name: {{ $.Release.Name }}-node-permissions
+        {{- if not $.Values.node.storage.persistence }}
+        - name: data
+          emptyDir:
+            sizeLimit: {{ $.Values.node.storage.size }}
+        {{- end }}
+{{- end }}

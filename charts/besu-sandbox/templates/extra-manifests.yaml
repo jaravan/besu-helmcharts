@@ -1,0 +1,9 @@
+{{- if .Values.extraManifests }}
+{{- if not (kindIs "slice" .Values.extraManifests) -}}
+{{- fail "extraManifests must be a list of YAML document strings" -}}
+{{- end -}}
+{{- range .Values.extraManifests }}
+---
+{{ tpl . $ }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,405 @@
+# Default values for besu-sandbox.
+
+# Fixed sandbox validator set — same keys on every install so teardown/rebuild
+# produces identical enodes, genesis extraData, and addresses. Each entry is a
+# coupled triplet (nodeKey → pubKey → address); changing any field without
+# regenerating genesis.extraData below will produce an invalid network.
+#
+# Node private keys (nodeKey) — how they reach the cluster:
+#   validatorKeys.source=values          → nodeKey inline below (default sandbox)
+#   validatorKeys.source=existingSecret → you create Secrets named per existingSecret.nameTemplate
+#   validatorKeys.source=externalSecrets  → chart renders ExternalSecret CRs (ESO)
+# pubKey + address are always required here (genesis / enodes — not secret).
+# See doc/validator-keys-and-external-secrets.md.
+validatorKeys:
+  source: values
+  existingSecret:
+    # Kubernetes Secret name per validator; {{n}} = 1-based index.
+    nameTemplate: "besu-validator{{n}}-key"
+    dataKey: nodekey
+  externalSecrets:
+    # External Secrets Operator — https://external-secrets.io/
+    apiVersion: external-secrets.io/v1
+    refreshInterval: 1h
+    secretStoreRef:
+      name: ""
+      kind: ClusterSecretStore
+    target:
+      nameTemplate: "besu-validator{{n}}-key"
+      # Key name inside the synced Kubernetes Secret (must match what Besu mounts as nodekey).
+      dataKey: nodekey
+    remoteRef:
+      # Remote path/key per validator; {{n}} = 1-based index.
+      # AWS Secrets Manager: secret id or path; Vault: secret path (see doc).
+      keyTemplate: "besu-sandbox/validator{{n}}"
+      property: nodekey
+
+validators:
+  - nodeKey: "82b394491f89a13abd506bb45f85ee77043154cc2de738a2d44ca8347f0da416"
+    pubKey: "b4bdf7e5fc7d75bf481c51824ff3c10433e8c58cc18cda3aeed7654a2a49bffde2375ba3e4bb703c9220d799695aaeee958d38dbfe04db1c8f75d75395ae7762"
+    address: "0x5e6bb0a9afcae09c2d0aebc85a71b08ec4118e5f"
+  - nodeKey: "410141a3538dc3711da9037185f79f1f3be0392b2ba4048db135425b96eced46"
+    pubKey: "33897b28322e30da87ce1b9c6af576367155b783de169d396e6db6e9e6094fa1184ea058104924264aa0c7018d5b3947bc1e807cf9700bc7cb77d41effa19497"
+    address: "0x9418ba4c44ebb8370a890121614028731119e31f"
+  - nodeKey: "d8f952b02cf3ee21cf768df5dcb3cf66ae39d270a64ffce08888aa96bc0044ed"
+    pubKey: "78ad586e3fc26a88feda2e373135820088dcb814c2b7d48b5dbc3440a865c3f651dbb1de6b4b39dce45e1fa363907afc418f806b9a8e8fedb5a17ae2500fe9d9"
+    address: "0xc156280512693c359f6935a2290b8689fe6b353f"
+  - nodeKey: "062b4b5a1242a4ad043a17d27cc58d7eb9acaebdf769df92dcd4869d4c8ab46c"
+    pubKey: "1e1819b3a9dc6331d88360e7657156d37d8b756ac9a299b797f37d8d1a82302a20ac763a69ab56f5ae090d37e9fe46ae67cbb5b168159cef00898af439cdc48b"
+    address: "0xc4393b1ced8d49a2949f0e68af125ece1064829c"
+
+# Protect BFT quorum during voluntary disruption (node drain, rolling upgrade).
+# minAvailable is derived from len(validators): n - floor((n-1)/3).
+podDisruptionBudget:
+  enabled: true
+
+# Optional soft pod anti-affinity — prefer spreading validators across K8s
+# worker nodes (reduces losing multiple validators on one host failure).
+# Off by default: kind/minikube are usually single-node. Merges with
+# node.affinity when both are set (PDB = voluntary; anti-affinity = involuntary).
+podAntiAffinity:
+  enabled: false
+  weight: 100
+
+# Genesis configuration — extraData (validator set) and optional London fork.
+genesis:
+  # EIP-1559 (London) fork + zero base fee. OFF by default (pre-London chain).
+  #
+  # Free gas uses two independent layers:
+  #
+  #   Gate 1 — baseFee (genesis, network-wide consensus)
+  #     Only exists when londonBlock is set in genesis. zeroBaseFee forces it to 0.
+  #   Gate 2 — min-gas-price (config.toml on every node, local mempool/mining floor)
+  #     Always exists. Must be 0 for free gas regardless of fork.
+  #
+  # london: false (default)
+  #   Genesis has no londonBlock → pre-London chain → no base fee at all.
+  #   min-gas-price=0 on nodes is sufficient for free gas.
+  #   MetaMask uses the legacy gasPrice UI (can be set to 0).
+  #
+  # london: true
+  #   Genesis sets londonBlock: 0 and zeroBaseFee: true → EIP-1559 from block 0
+  #   with baseFeePerGas forced to 0. Still free gas (both gates at zero), but
+  #   MetaMask shows the EIP-1559 fee UI instead of legacy. Used by portfolio
+  #   projects 03 and 13 to demonstrate wallet fee-screen behaviour.
+  #
+  # Changing london on a running network requires a full reset: uninstall the
+  # release, delete validator PVCs, reinstall — genesis config is immutable.
+  london: false
+
+  # RLP-encoded initial validator set (validators[].address).
+  # Only the string matching `consensus` is required at install time; keep both
+  # when switching qbft ↔ ibft2 (Project 05). Regenerate with `besu rlp encode`
+  # whenever validators change — see doc/creating-validators-and-values.md.
+  extraData:
+    qbft: "0xf87aa00000000000000000000000000000000000000000000000000000000000000000f85494c4393b1ced8d49a2949f0e68af125ece1064829c94c156280512693c359f6935a2290b8689fe6b353f945e6bb0a9afcae09c2d0aebc85a71b08ec4118e5f949418ba4c44ebb8370a890121614028731119e31fc080c0"
+    ibft2: "0xf87ea00000000000000000000000000000000000000000000000000000000000000000f854945e6bb0a9afcae09c2d0aebc85a71b08ec4118e5f949418ba4c44ebb8370a890121614028731119e31f94c156280512693c359f6935a2290b8689fe6b353f94c4393b1ced8d49a2949f0e68af125ece1064829c808400000000c0"
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+node:
+  image:
+    repository: hyperledger/besu
+    # This sets the pull policy for images.
+    pullPolicy: IfNotPresent
+    # Optional override; when omitted, defaults to Chart.appVersion (Chart.yaml).
+    # tag: "26.6.0"
+  # Private registry pull secrets — https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  imagePullSecrets: []
+  resources:
+#   # We usually recommend not to specify default resources and to leave this as a conscious
+#   # choice for the user. This also increases chances charts run on environments with little
+#   # resources, such as Minikube. If you do want to specify resources, uncomment the following
+#   # lines, adjust them as necessary, and remove the curly braces after 'resources:'.  
+    requests:
+      cpu: 100m
+      memory: 1024Mi
+    limits:
+      cpu: 500m
+      memory: 2048Mi
+  # Validators 2–4: curl init container waits for validator1 JSON-RPC /liveness
+  # before Besu starts (~300s retry budget matches startupProbe).
+  initBootnode:
+    image: curlimages/curl:8.11.1
+    pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  storage:
+    # true → volumeClaimTemplates (data-<statefulset>-0 PVC per validator).
+    # false → emptyDir (ephemeral; no StorageClass required).
+    # Note: switching persistence or migrating from pre-v0.2 standalone PVCs
+    # (validator<N>-data) requires manual data migration — sandbox teardown is
+    # usually simpler than in-place migration.
+    persistence: true
+    size: 1Gi
+    # Named StorageClass for validator PVCs. Omit (or leave commented) to use the
+    # cluster's default StorageClass — the usual choice on kind/minikube/EKS/GKE.
+    # Set explicitly when the cluster has no default or you need a specific class
+    # (e.g. "standard", "gp3", "local-path").
+    # storageClass: "standard"
+    # PVC access mode. ReadWriteOnce matches one validator pod per volume.
+    accessModes:
+      - ReadWriteOnce
+  # Besu-native health endpoints on the JSON-RPC port (8545).
+  # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  livenessProbe:
+    httpGet:
+      path: /liveness
+      port: json-rpc
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      # Use /liveness, not /readiness. Besu's default /readiness requires ≥1 peer
+      # and returns HTTP 503 while DOWN — k8s httpGet treats that as probe failure,
+      # so the pod never becomes Ready. minPeers>0 also deadlocks cold start via
+      # Service endpoints (see comment on init container). "Ready" here means RPC is
+      # up and accepting requests, same gate validators 2–4 wait on.
+      path: /liveness
+      port: json-rpc
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  # Allow slow Besu startup before liveness/readiness take effect (matches init
+  # container retry budget of ~300s for validators 2–4).
+  startupProbe:
+    httpGet:
+      path: /liveness
+      port: json-rpc
+    periodSeconds: 10
+    failureThreshold: 30
+  # Optional extra affinity (nodeAffinity, podAffinity). Merges with
+  # podAntiAffinity.enabled when both are set. Do not set podAntiAffinity here —
+  # use the chart-level podAntiAffinity toggle for validator spreading.
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+
+# Consensus engine — drives genesis config/extraData and rpc-*-api defaults.
+# qbft | ibft2  (switch for Project 05 IBFT2 vs QBFT benchmarks)
+consensus: qbft
+
+# Shared consensus parameters (identical sub-options for QBFT and IBFT 2.0).
+consensusConfig:
+  blockperiodseconds: 2
+  epochlength: 30000
+  requesttimeoutseconds: 10
+
+# JSON-RPC / WebSocket RPC — on every validator (<release>-validator*) and unified
+# round-robin entrypoint svc/<release>-rpc-unified (see unifiedRpcService).
+# rpc.http.api / rpc.ws.api are optional overrides; when omitted, lists are derived from consensus.
+rpc:
+  http:
+    enabled: true
+    port: 8545
+    host: "0.0.0.0"
+    corsOrigins:
+      - "*"
+    # api:  # optional — defaults from consensus
+  ws:
+    # WebSocket JSON-RPC (eth_subscribe, watchContractEvent, etc.).
+    enabled: true
+    port: 8546
+    host: "0.0.0.0"
+    # api:  # optional — defaults from consensus
+    # # Besu rpc-ws-api namespace list. QBFT consensus:
+    # api:
+    #   - DEBUG
+    #   - ETH
+    #   - ADMIN
+    #   - WEB3
+    #   - QBFT
+    #   - NET
+    # IBFT 2.0 consensus:
+    # api:
+    #   - DEBUG
+    #   - ETH
+    #   - ADMIN
+    #   - WEB3
+    #   - IBFT
+    #   - NET
+    #   - EEA
+  graphql:
+    # GraphQL HTTP API — off by default. When false, port 8547 is not exposed on
+    # Services or container ports.
+    enabled: false
+    port: 8547
+    host: "0.0.0.0"
+    corsOrigins:
+      - "*"
+
+# P2P peering (in-cluster + cross-cloud NLB).
+p2p:
+  # Early access Besu CLI flags (--Xdns-*; private permissioned networks per Besu docs).
+  # See https://blog.web3labs.com/understanding-dns-flags-in-besu/
+  # xdnsEnabled alone caches resolved IPs for the process lifetime; enable
+  # xdnsUpdateEnabled so peers pick up new pod or NLB IPs without restart.
+  xdnsEnabled: true
+  xdnsUpdateEnabled: true
+
+# Unified round-robin RPC Service — load-balances HTTP/WS across all Ready
+# validators. Use this for apps and MetaMask, not <release>-validator1..N (those
+# target a single validator and are mainly for P2P / debugging).
+unifiedRpcService:
+  enabled: true
+  name: ""
+
+# Prometheus Operator integration (Project 06 observability stack).
+# Requires monitoring.coreos.com/v1 ServiceMonitor CRD (e.g. kube-prometheus-stack).
+# When enabled, prometheus.io/* pod annotations are omitted — use one discovery
+# path only, not both (avoids double-scraping).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  # Extra labels on the ServiceMonitor resource. For kube-prometheus-stack, set
+  # labels that match the Prometheus CR's serviceMonitorSelector, e.g.:
+  #   labels:
+  #     release: prometheus
+  labels: {}
+
+# Intra-namespace network isolation for validator pods (consortium gesture — not
+# production security). Off by default: kind/minikube work without a CNI policy
+# enforcement surprise, and cross-namespace rules vary by cluster.
+#
+# When enabled, validator pods may talk to other pods in the same namespace and
+# to kube-system DNS only. Cross-namespace ingress (e.g. Prometheus in monitoring)
+# is denied — add via extraManifests below. See doc/validator1-commands.md §
+# NetworkPolicy for debugging and production-style examples.
+networkPolicy:
+  enabled: false
+
+# Additional Kubernetes manifests appended to the release (YAML strings). Each
+# entry is passed through tpl — you may reference Helm vars (e.g. .Release.Namespace).
+# Use for environment-specific rules the chart does not own (cross-namespace scrape,
+# external egress allowlists, Ingress, …).
+extraManifests: []
+# extraManifests:
+#   - |
+#     apiVersion: networking.k8s.io/v1
+#     kind: NetworkPolicy
+#     metadata:
+#       name: {{ .Release.Name }}-allow-prometheus-scrape
+#       namespace: {{ .Release.Namespace }}
+#     spec:
+#       podSelector:
+#         matchLabels:
+#           app.kubernetes.io/part-of: besu-sandbox
+#           app.kubernetes.io/component: validator
+#       policyTypes: [Ingress]
+#       ingress:
+#         - from:
+#             - namespaceSelector:
+#                 matchLabels:
+#                   kubernetes.io/metadata.name: monitoring
+#           ports:
+#             - protocol: TCP
+#               port: 9545
+
+# Post-install network validation. Does not run on helm install/upgrade — invoke
+# explicitly after pods are Ready: helm test <release> -n <namespace>
+helmTest:
+  enabled: true
+  image: curlimages/curl:8.11.1
+  # Sleep between eth_blockNumber samples; should exceed consensusConfig.blockperiodseconds.
+  blockSampleIntervalSeconds: 5
+  # Retry net_peerCount while validators finish peering (cold start).
+  peerCountRetries: 30
+  peerCountRetryDelaySeconds: 2
+
+########################################################################################################################################################
+########################################################################################################################################################
+
+# # This is to override the chart name.
+# nameOverride: ""
+# fullnameOverride: ""
+
+# # This is for setting Kubernetes Annotations to a Pod.
+# # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+# podAnnotations: {}
+# # This is for setting Kubernetes Labels to a Pod.
+# # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+# podLabels: {}
+
+# podSecurityContext: {}
+#   # fsGroup: 2000
+
+# securityContext: {}
+#   # capabilities:
+#   #   drop:
+#   #   - ALL
+#   # readOnlyRootFilesystem: true
+#   # runAsNonRoot: true
+#   # runAsUser: 1000
+
+# # This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+# serviceAccount:
+#   # Specifies whether a service account should be created.
+#   create: true
+#   # Automatically mount a ServiceAccount's API credentials?
+#   automount: true
+#   # Annotations to add to the service account.
+#   annotations: {}
+#   # The name of the service account to use.
+#   # If not set and create is true, a name is generated using the fullname template.
+#   name: ""
+
+# # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+# ingress:
+#   enabled: false
+#   className: ""
+#   annotations: {}
+#     # kubernetes.io/ingress.class: nginx
+#     # kubernetes.io/tls-acme: "true"
+#   hosts:
+#     - host: chart-example.local
+#       paths:
+#         - path: /
+#           pathType: ImplementationSpecific
+#   tls: []
+#     # - secretName: chart-example-tls
+#     #   hosts:
+#     #     - chart-example.local
+
+# # -- Expose the service via gateway-api HTTPRoute
+# # Requires Gateway API resources and suitable controller installed within the cluster
+# # (see: https://gateway-api.sigs.k8s.io/guides/)
+# httpRoute:
+#   # HTTPRoute enabled.
+#   enabled: false
+#   # HTTPRoute annotations.
+#   annotations: {}
+#   # Which Gateways this Route is attached to.
+#   parentRefs:
+#   - name: gateway
+#     sectionName: http
+#     # namespace: default
+#   # Hostnames matching HTTP header.
+#   hostnames:
+#   - chart-example.local
+#   # List of rules and filters applied.
+#   rules:
+#   - matches:
+#     - path:
+#         type: PathPrefix
+#         value: /headers
+#   #   filters:
+#   #   - type: RequestHeaderModifier
+#   #     requestHeaderModifier:
+#   #       set:
+#   #       - name: My-Overwrite-Header
+#   #         value: this-is-the-only-value
+#   #       remove:
+#   #       - User-Agent
+#   # - matches:
+#   #   - path:
+#   #       type: PathPrefix
+#   #       value: /echo
+#   #     headers:
+#   #     - name: version
+#   #       value: v2

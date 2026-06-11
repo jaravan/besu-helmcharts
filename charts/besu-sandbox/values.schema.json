@@ -1,0 +1,526 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "besu-sandbox chart values",
+  "description": "JSON Schema for values.yaml \u2014 catches type and enum errors at helm lint/install. Besu-specific rules (extraData vs validators) are still enforced in templates.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "nameOverride": {
+      "type": "string",
+      "description": "Override the chart name used in labels and resource names."
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "description": "Override the fully qualified release name."
+    },
+    "validators": {
+      "type": "array",
+      "minItems": 2,
+      "description": "Validator set. pubKey + address always required; nodeKey required only when validatorKeys.source=values.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pubKey",
+          "address"
+        ],
+        "properties": {
+          "nodeKey": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[0-9a-fA-F]+$"
+          },
+          "pubKey": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[0-9a-fA-F]+$"
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        }
+      }
+    },
+    "validatorKeys": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "values",
+            "existingSecret",
+            "externalSecrets"
+          ],
+          "description": "How node private keys reach the cluster."
+        },
+        "existingSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nameTemplate": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dataKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "externalSecrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apiVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "refreshInterval": {
+              "type": "string",
+              "minLength": 1
+            },
+            "secretStoreRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "SecretStore",
+                    "ClusterSecretStore"
+                  ]
+                }
+              }
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "nameTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "dataKey": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "remoteRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "keyTemplate": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "property": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "podAntiAffinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "genesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "london": {
+          "type": "boolean",
+          "description": "When true, genesis sets londonBlock: 0 and zeroBaseFee: true (EIP-1559 fee UI demo)."
+        },
+        "extraData": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "qbft": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ibft2": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "$ref": "#/$defs/resourceList"
+            },
+            "limits": {
+              "$ref": "#/$defs/resourceList"
+            }
+          }
+        },
+        "initBootnode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "requests": {
+                  "$ref": "#/$defs/resourceList"
+                },
+                "limits": {
+                  "$ref": "#/$defs/resourceList"
+                }
+              }
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "persistence": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string",
+              "minLength": 1,
+              "description": "PVC size (e.g. 1Gi) or emptyDir sizeLimit when persistence is false."
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "accessModes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ReadWriteOnce",
+                  "ReadWriteMany",
+                  "ReadOnlyMany"
+                ]
+              }
+            }
+          }
+        },
+        "livenessProbe": {
+          "$ref": "#/$defs/httpProbe"
+        },
+        "readinessProbe": {
+          "$ref": "#/$defs/httpProbe"
+        },
+        "startupProbe": {
+          "$ref": "#/$defs/httpProbe"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "consensus": {
+      "type": "string",
+      "enum": [
+        "qbft",
+        "ibft2"
+      ],
+      "description": "Consensus engine \u2014 drives genesis key and RPC API namespaces."
+    },
+    "consensusConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "blockperiodseconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "epochlength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "requesttimeoutseconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "rpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "http": {
+          "$ref": "#/$defs/rpcEndpoint"
+        },
+        "ws": {
+          "$ref": "#/$defs/rpcEndpoint"
+        },
+        "graphql": {
+          "$ref": "#/$defs/rpcEndpoint"
+        }
+      }
+    },
+    "p2p": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "xdnsEnabled": {
+          "type": "boolean",
+          "description": "Pass --Xdns-enabled to Besu (early access; private permissioned networks)."
+        },
+        "xdnsUpdateEnabled": {
+          "type": "boolean",
+          "description": "Pass --Xdns-update-enabled to Besu (early access; re-query DNS when peer IPs change)."
+        }
+      }
+    },
+    "unifiedRpcService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "serviceMonitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Prometheus scrape interval (e.g. 30s)."
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Prometheus scrape timeout (e.g. 10s)."
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "extraManifests": {
+      "type": "array",
+      "description": "Extra YAML documents (strings), tpl-rendered and appended to the release.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "helmTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "blockSampleIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "peerCountRetries": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "peerCountRetryDelaySeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        }
+      }
+    },
+    "httpProbe": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "httpGet": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "port": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          }
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "rpcEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "host": {
+          "type": "string"
+        },
+        "corsOrigins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "api": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*/v*'   # e.g. besu-sandbox/v0.1.0, besu-production/v1.0.0
+
+jobs:
+  release:
+    name: Publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create GitHub Release
+      packages: write   # push to ghcr.io
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Parse tag
+        id: tag
+        run: |
+          TAG="${{ github.ref_name }}"   # besu-sandbox/v0.1.0
+          CHART="${TAG%%/v*}"            # besu-sandbox
+          VERSION="${TAG#*/v}"           # 0.1.0
+          echo "chart=${CHART}"   >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify chart version matches tag
+        run: |
+          CHART_VER="$(helm show chart charts/${{ steps.tag.outputs.chart }} | grep '^version:' | awk '{print $2}')"
+          TAG_VER="${{ steps.tag.outputs.version }}"
+          if [ "${CHART_VER}" != "${TAG_VER}" ]; then
+            echo "ERROR: Chart.yaml version (${CHART_VER}) does not match tag (${TAG_VER})"
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io \
+              --username "${{ github.repository_owner }}" \
+              --password-stdin
+
+      - name: Package
+        run: helm package charts/${{ steps.tag.outputs.chart }} --destination /tmp/charts
+
+      - name: Push to GHCR
+        run: |
+          helm push /tmp/charts/${{ steps.tag.outputs.chart }}-*.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/besu-helmcharts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.tag.outputs.chart }} v${{ steps.tag.outputs.version }}
+          generate_release_notes: true
+          files: /tmp/charts/${{ steps.tag.outputs.chart }}-*.tgz

@@ -1,0 +1,151 @@
+name: besu-sandbox CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'charts/besu-sandbox/**'
+      - 'scripts/**'
+      - 'README.md'
+      - '.github/workflows/besu-sandbox-ci.yaml'
+  pull_request:
+    paths:
+      - 'charts/besu-sandbox/**'
+      - 'scripts/**'
+      - 'README.md'
+      - '.github/workflows/besu-sandbox-ci.yaml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  lint:
+    name: besu-sandbox / helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm lint
+        run: helm lint charts/besu-sandbox
+
+      - name: helm lint (example value profiles)
+        run: |
+          for f in charts/besu-sandbox/examples/values-*.yaml; do
+            [ -f "$f" ] || continue
+            echo "==> $f"
+            helm lint charts/besu-sandbox -f "$f"
+          done
+
+      - name: helm template (sanity)
+        run: helm template sbx charts/besu-sandbox -n besu-ci > /dev/null
+
+      - name: doc-link check
+        run: |
+          set -euo pipefail
+          chart=charts/besu-sandbox
+          missing=0
+
+          # 1) Bare "doc/<name>.md" references anywhere in the chart
+          #    (templates, values.yaml, README, docs) must resolve to a real file.
+          while IFS= read -r ref; do
+            [ -z "$ref" ] && continue
+            if [ ! -f "$chart/$ref" ]; then
+              echo "MISSING: $ref — referenced in chart but no file at $chart/$ref"
+              missing=1
+            fi
+          done < <(grep -rhoE 'doc/[A-Za-z0-9._-]+\.md' "$chart" | sort -u)
+
+          # 2) Relative markdown links "](./name.md)" / "](name.md)" inside doc/*.md
+          #    must resolve relative to the linking file (anchors and externals skipped).
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            file="${line%%:*}"
+            m="${line#*:}"          # ](./foo.md#anchor)
+            m="${m#](}"; m="${m%)}" # ./foo.md#anchor
+            target="${m%%#*}"       # strip anchor
+            target="${target#./}"   # strip leading ./
+            case "$target" in
+              http*|/*) continue ;; # skip external / absolute
+            esac
+            dir="$(dirname "$file")"
+            if [ ! -f "$dir/$target" ]; then
+              echo "MISSING: $target — linked from $file but no file at $dir/$target"
+              missing=1
+            fi
+          done < <(grep -rEo '\]\((\.\/)?[A-Za-z0-9._-]+\.md(#[^)]*)?\)' "$chart/doc" || true)
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Broken doc references found — fix the link or add the file."
+            exit 1
+          fi
+          echo "All doc references resolve."
+
+  checkov:
+    name: besu-sandbox / checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Render manifests
+        run: |
+          mkdir -p /tmp/checkov
+          helm template sbx charts/besu-sandbox -n besu-ci \
+            > /tmp/checkov/default.yaml
+          helm template sbx charts/besu-sandbox -n besu-ci \
+            --set networkPolicy.enabled=true \
+            > /tmp/checkov/network-policy.yaml
+
+      - name: Checkov (default values)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          framework: kubernetes
+          file: /tmp/checkov/default.yaml
+          config_file: charts/besu-sandbox/.checkov.yaml
+          soft_fail: false
+          quiet: true
+
+      - name: Checkov (networkPolicy enabled)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          framework: kubernetes
+          file: /tmp/checkov/network-policy.yaml
+          config_file: charts/besu-sandbox/.checkov.yaml
+          soft_fail: false
+          quiet: true
+
+  kind-e2e:
+    name: besu-sandbox / kind + helm test
+    runs-on: ubuntu-latest
+    needs: [lint, checkov]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: besu-sandbox-ci
+
+      - name: helm upgrade --install
+        run: |
+          helm upgrade --install sbx charts/besu-sandbox \
+            -n besu-ci --create-namespace \
+            --wait --timeout 10m \
+            --set node.resources.requests.memory=512Mi \
+            --set node.resources.limits.memory=1024Mi
+
+      - name: helm test
+        run: helm test sbx -n besu-ci --timeout 5m --logs

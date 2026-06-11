@@ -1,0 +1,29 @@
+{{- include "besu-sandbox.validateValidators" . -}}
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- $n := len .Values.validators -}}
+{{- $f := include "besu-sandbox.bftFaultTolerance" . | int -}}
+{{- $minAvailable := include "besu-sandbox.podDisruptionBudgetMinAvailable" . | int -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-validators
+  labels:
+    {{- include "besu-sandbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: validator
+spec:
+  # QBFT/IBFT2 need a 2f+1 quorum among n validators. Standard BFT sizing is
+  # n = 3f+1, tolerating at most f simultaneous faults. Voluntary disruptions
+  # (node drain, rolling upgrade) must not take down more than f validators at
+  # once or block production halts.
+  #
+  #   f = floor((n-1)/3)
+  #   minAvailable = n - f
+  #
+  # Default sandbox (n=4): f=1, minAvailable=3 — at most one validator may be
+  # evicted voluntarily while three remain to hold quorum.
+  minAvailable: {{ $minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "besu-sandbox.validatorPodSelectorLabels" . | nindent 6 }}
+{{- end }}
