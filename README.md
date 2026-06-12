@@ -45,26 +45,25 @@ and values reference live in **each chart's README**, not here.
 
 ## Quick start
 
-From the **repository root**:
-
 ```sh
-# Install a chart (example: besu-sandbox)
-helm upgrade --install sbx charts/besu-sandbox \
-  -n besu --create-namespace --wait --timeout=600s
+# Install besu-sandbox from the published OCI package
+helm upgrade --install sbx oci://ghcr.io/jaravan/besu-helmcharts/besu-sandbox \
+  --version 0.1.0 -n besu --create-namespace --wait --timeout=600s
 
-# Optional post-install check (besu-sandbox only)
+# Optional post-install check
 helm test sbx -n besu --timeout 300s --logs
+
+# Local install from a repo clone (development / CI)
+# helm upgrade --install sbx charts/besu-sandbox \
+#   -n besu --create-namespace --wait --timeout=600s
 ```
 
-General pattern for any chart in this repo:
+General pattern for linting any chart in this repo:
 
 ```sh
 helm lint charts/<chart-name>
 helm upgrade --install <release> charts/<chart-name> -n <namespace> --create-namespace
 ```
-
-For OCI installs after publish, use the chart name from that chart's `Chart.yaml`
-(e.g. `oci://<registry>/<owner>/besu-sandbox`).
 
 ## CI and local checks
 
@@ -91,7 +90,6 @@ Early exploration used raw Kubernetes manifests from
 ([`playground/kubectl/quorum-besu/ibft2`](https://github.com/Consensys/quorum-kubernetes/tree/master/playground/kubectl/quorum-besu/ibft2))
 and was rewritten as an independent Helm chart. It is not a fork of ConsenSys Helm
 charts and is not maintained by ConsenSys.
-
 
 ## License
 

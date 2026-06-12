@@ -79,7 +79,7 @@ For production-style setups, use **`validatorKeys.source`**:
 | `source`          | Use case                                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `values`          | Default — local kind/minikube, deterministic demo keys                                                             |
-| `existingSecret`  | You pre-create Secrets named per `validatorKeys.existingSecret.nameTemplate` (Sealed Secrets, CI, …)                |
+| `existingSecret`  | You pre-create Secrets named per `validatorKeys.existingSecret.nameTemplate` (Sealed Secrets, CI, …)               |
 | `externalSecrets` | [External Secrets Operator](https://external-secrets.io/) sync from **HashiCorp Vault** or **AWS Secrets Manager** |
 
 `pubKey` and `address` stay in `validators[]` in all modes (genesis / enodes).
@@ -294,7 +294,6 @@ Regenerate keys and `genesis.extraData` together — [creating-validators-and-va
 | `genesis.extraData.qbft`  | string (RLP hex) | (4 validators) | QBFT genesis validator set encoding. Used when `consensus=qbft`.                                               |
 | `genesis.extraData.ibft2` | string (RLP hex) | (4 validators) | IBFT 2.0 genesis encoding. Used when `consensus=ibft2`.                                                        |
 
-
 ### `consensus` / `consensusConfig`
 
 | Key                                     | Type              | Default | Description                                                             |
@@ -303,7 +302,6 @@ Regenerate keys and `genesis.extraData` together — [creating-validators-and-va
 | `consensusConfig.blockperiodseconds`    | int               | `2`     | Target block time (seconds).                                            |
 | `consensusConfig.epochlength`           | int               | `30000` | Epoch length (blocks).                                                  |
 | `consensusConfig.requesttimeoutseconds` | int               | `10`    | Request timeout (seconds).                                              |
-
 
 ### `node` — Besu container and scheduling
 
@@ -356,13 +354,12 @@ Regenerate keys and `genesis.extraData` together — [creating-validators-and-va
 | `p2p.xdnsEnabled`       | bool | `true`  | Besu `--Xdns-enabled` (early access). Hostnames in enode URLs.    |
 | `p2p.xdnsUpdateEnabled` | bool | `true`  | Besu `--Xdns-update-enabled` — re-query DNS when peer IPs change. |
 
-
 ### `unifiedRpcService`
 
-| Key                         | Type   | Default            | Description                                                           |
-| --------------------------- | ------ | ------------------ | --------------------------------------------------------------------- |
-| `unifiedRpcService.enabled` | bool   | `true` | Round-robin RPC Service across Ready validators.                                           |
-| `unifiedRpcService.name`    | string | `""`   | Service name override. Defaults to `<release>-rpc-unified` when empty — use for MetaMask / dApps. |
+| Key                         | Type   | Default | Description                                                                                       |
+| --------------------------- | ------ | ------- | ------------------------------------------------------------------------------------------------- |
+| `unifiedRpcService.enabled` | bool   | `true`  | Round-robin RPC Service across Ready validators.                                                  |
+| `unifiedRpcService.name`    | string | `""`    | Service name override. Defaults to `<release>-rpc-unified` when empty — use for MetaMask / dApps. |
 
 ### `serviceMonitor`
 
@@ -401,14 +398,17 @@ Regenerate keys and `genesis.extraData` together — [creating-validators-and-va
 ## Installation
 
 ```sh
-helm upgrade --install sbx . -n besu --create-namespace --wait --timeout=600s
-```
+# From the published OCI package
+helm upgrade --install sbx oci://ghcr.io/jaravan/besu-helmcharts/besu-sandbox \
+  --version 0.1.0 -n besu --create-namespace --wait --timeout=600s
 
-```sh
-helm upgrade --install my-release-name besu-helmcharts/besu-sandbox \
-    --version=0.1.0 \
-    --wait --timeout=600s \
-    --values my-config.yaml
+# With a values override
+helm upgrade --install sbx oci://ghcr.io/jaravan/besu-helmcharts/besu-sandbox \
+  --version 0.1.0 -n besu --create-namespace --wait --timeout=600s \
+  --values my-config.yaml
+
+# Local install from a repo clone (development)
+# helm upgrade --install sbx . -n besu --create-namespace --wait --timeout=600s
 ```
 
 ## Test
@@ -481,7 +481,8 @@ validators are Ready.
 `kubectl rollout status`).
 
 ```sh
-helm upgrade --install sbx . -n besu --create-namespace --wait --timeout=600s
+helm upgrade --install sbx oci://ghcr.io/jaravan/besu-helmcharts/besu-sandbox \
+  --version 0.1.0 -n besu --create-namespace --wait --timeout=600s
 helm test sbx -n besu --timeout 300s
 ```
 
