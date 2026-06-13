@@ -9,6 +9,25 @@ workflow, and must match `Chart.yaml`'s `version` (CI enforces this).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-14
+
+### Fixed
+
+- Account permissioning could not start in 0.2.0: the allowlist was mounted
+  directly from a ConfigMap, which is **read-only**, but Besu persists the
+  allowlist back to its config file on startup — so the node failed immediately
+  with `ERROR_ALLOWLIST_PERSIST_FAIL`. The chart now stages
+  `accounts-allowlist.toml` from the (read-only) ConfigMap onto a **writable
+  `emptyDir`** via a `stage-permissions` init container, and points Besu at the
+  writable copy. Account permissioning now starts and works.
+- New `permissioning.accounts.stagingImage` value (default `busybox:1.36`) for
+  the staging init container; overridable for air-gapped / mirrored registries.
+
+> Note: with the `emptyDir` working copy, runtime `perm_*` changes persist until
+> pod restart, after which the allowlist resets to the ConfigMap baseline (the
+> ConfigMap remains the source of truth across restarts). See
+> `doc/account-permissioning.md`.
+
 ## [0.2.0] - 2026-06-14
 
 ### Added

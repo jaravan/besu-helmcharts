@@ -263,6 +263,13 @@ permissioning:
     # legitimately sends transactions (e.g. the genesis-funded / treasury
     # accounts) or they will start being rejected.
     allowlist: []
+    # Besu persists the allowlist back to its config file, so the file must live
+    # on a WRITABLE volume — a ConfigMap mount is read-only and Besu fails at
+    # startup with ERROR_ALLOWLIST_PERSIST_FAIL. The chart stages the file onto a
+    # writable emptyDir via an init container that uses this (root-capable) image
+    # to copy it and set permissions. Runtime perm_* changes persist to the
+    # staged copy but reset to this ConfigMap baseline on pod restart.
+    stagingImage: busybox:1.36
 
 # Unified round-robin RPC Service — load-balances HTTP/WS across all Ready
 # validators. Use this for apps and MetaMask, not <release>-validator1..N (those

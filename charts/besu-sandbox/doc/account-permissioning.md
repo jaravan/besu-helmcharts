@@ -17,10 +17,19 @@ OFF by default — existing installs are unaffected.
 
 ## What the chart renders when enabled
 
-| Value                                 | Effect                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `permissioning.accounts.enabled=true` | Adds `permissions-accounts-config-file-enabled=true` + `permissions-accounts-config-file="/etc/permissions/accounts-allowlist.toml"` to `config.toml`, renders `accounts-allowlist.toml` into the `node-permissions` ConfigMap (mounted at `/etc/permissions`), and appends `PERM` to the derived `rpc-http-api` / `rpc-ws-api` so `perm_*` methods are reachable. |
-| `permissioning.accounts.allowlist`    | The `0x` addresses permitted to submit transactions.                                                                                                                                                                                                                                                                                                               |
+| Value                                 | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `permissioning.accounts.enabled=true` | Adds `permissions-accounts-config-file-enabled=true` + `permissions-accounts-config-file="/etc/permissions/accounts-allowlist.toml"` to `config.toml`, renders `accounts-allowlist.toml` into the `node-permissions` ConfigMap, stages it onto a **writable `emptyDir`** at `/etc/permissions` via a `stage-permissions` init container, and appends `PERM` to the derived `rpc-http-api` / `rpc-ws-api` so `perm_*` methods are reachable. |
+| `permissioning.accounts.allowlist`    | The `0x` addresses permitted to submit transactions.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `permissioning.accounts.stagingImage` | Init-container image (default `busybox:1.36`) that copies the allowlist onto the writable volume. Override for air-gapped / mirrored registries.                                                                                                                                                                                                                                                                                            |
+
+> **Why the staging step (the 0.2.0 → 0.2.1 fix):** Besu _persists_ the allowlist
+> back to its config file on startup, so the file must be on a writable volume. A
+> ConfigMap mount is always read-only, which made 0.2.0 fail immediately with
+> `ERROR_ALLOWLIST_PERSIST_FAIL`. The chart now stages the ConfigMap copy onto a
+> writable `emptyDir`. Consequence: the **ConfigMap is the source of truth across
+> restarts** — on each pod start the live file is re-seeded from it, so runtime
+> `perm_*` changes are lost on restart unless also written back to values/ConfigMap.
 
 ```yaml
 permissioning:
@@ -73,20 +82,46 @@ done
 
 Once enabled, you can change who is allowed **without** a restart. Two paths:
 
-| Method                                                             | Effect                                      | Persists restart?                         | Latency                                                                            |
-| ------------------------------------------------------------------ | ------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------- |
-| `perm_getAccountsAllowlist`                                        | read the current in-memory allowlist        | —                                         | immediate                                                                          |
-| `perm_addAccountsToAllowlist` / `perm_removeAccountsFromAllowlist` | change the in-memory allowlist              | **No**                                    | immediate                                                                          |
-| `perm_reloadPermissionsFromFile`                                   | re-read `accounts-allowlist.toml` from disk | **Yes** (the file is the source of truth) | after the ConfigMap edit propagates to the mounted file — kubelet sync, up to ~60s |
+| Method                                                             | Effect                                                                                    | Persists restart? | Latency                                    |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------ |
+| `perm_getAccountsAllowlist`                                        | read the current in-memory allowlist                                                      | —                 | immediate                                  |
+| `perm_addAccountsToAllowlist` / `perm_removeAccountsFromAllowlist` | change the in-memory allowlist                                                            | **No**            | immediate                                  |
+| `perm_reloadPermissionsFromFile`                                   | re-read `accounts-allowlist.toml` from the **staged writable copy** at `/etc/permissions` | until pod restart | immediate (reads the live file in the pod) |
 
-The **file (ConfigMap) is the source of truth across restarts**; the in-memory
-`perm_add*` / `perm_remove*` calls are fast but lost on restart.
-`perm_reloadPermissionsFromFile` reconciles in-memory state back to the file.
+> **The staged copy — not the ConfigMap mount — is what Besu reads.** Because the
+> live file is an `emptyDir` seeded once at pod start, **`kubectl edit configmap`
+> does NOT change the live file**, and `perm_reloadPermissionsFromFile` will not
+> pick up a ConfigMap edit. To change the allowlist:
+>
+> - **Runtime (no restart):** use `perm_addAccountsToAllowlist` /
+>   `perm_removeAccountsFromAllowlist` (writes through to the staged file). Lost
+>   on pod restart, when the file is re-seeded from the ConfigMap.
+> - **Durable across restart:** `helm upgrade` with the new `allowlist` (updates
+>   the ConfigMap), then restart each validator one at a time so the init
+>   container re-stages the file (see the rolling-restart procedure above).
 
 > **Apply on every node that validates transactions.** Each validator keeps its
 > own permissioning state — an in-memory `perm_add*` on one node does not
-> propagate. Either call it on every validator, or edit the ConfigMap (single
-> source of truth) and `perm_reloadPermissionsFromFile` on every validator.
+> propagate. Run the call on **every** validator.
+
+### Rejection wording
+
+A transaction submitted by a non-allowlisted sender is rejected at
+`eth_sendRawTransaction` with (verified against Besu `26.6.0`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32007,
+    "message": "Sender account not authorized to send transactions"
+  }
+}
+```
+
+After the sender is added to the allowlist, the same signed transaction is
+accepted and returns a transaction hash — no restart.
 
 ### Fast deny → allow → deny demo (in-memory)
 
@@ -101,13 +136,24 @@ $RPC '{"jsonrpc":"2.0","method":"perm_addAccountsToAllowlist","params":[["0x<T>"
 $RPC '{"jsonrpc":"2.0","method":"perm_removeAccountsFromAllowlist","params":[["0x<T>"]],"id":1}'
 ```
 
-### Durable change (edit the file, then reload)
+### Durable change (survives pod restart)
+
+The ConfigMap is the restart baseline, so a durable change means updating values
+and re-staging:
 
 ```sh
-kubectl edit configmap sbx-node-permissions -n besu   # edit accounts-allowlist.toml
-# wait for the mounted file to update (≤ ~60s), then on each validator:
-$RPC '{"jsonrpc":"2.0","method":"perm_reloadPermissionsFromFile","id":1}'
+helm upgrade sbx charts/besu-sandbox -n besu --reuse-values \
+  --set 'permissioning.accounts.allowlist={0x5e6...,0x941...,0x<T>}'
+# then re-stage one validator at a time (init container re-seeds the live file):
+for n in 1 2 3 4; do
+  kubectl rollout restart statefulset/sbx-validator$n -n besu
+  kubectl rollout status  statefulset/sbx-validator$n -n besu --timeout=300s
+done
 ```
+
+If you instead exec into a pod and edit the live file directly
+(`/etc/permissions/accounts-allowlist.toml`), `perm_reloadPermissionsFromFile`
+picks it up immediately — but that change is also lost on pod restart.
 
 ---
 

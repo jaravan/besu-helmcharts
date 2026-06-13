@@ -97,8 +97,9 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if gt $n 1 }}
+      {{- if or (gt $n 1) $.Values.permissioning.accounts.enabled }}
       initContainers:
+      {{- if gt $n 1 }}
         - name: init-bootnode
           image: {{ $.Values.node.initBootnode.image }}
           imagePullPolicy: {{ $.Values.node.initBootnode.pullPolicy }}
@@ -110,6 +111,29 @@ spec:
             - "sh"
             - "-c"
             - "curl -X GET --connect-timeout 30 --max-time 10 --retry 6 --retry-delay 0 --retry-max-time 300 {{ $.Release.Name }}-validator1.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.rpc.http.port }}/liveness"
+      {{- end }}
+      {{- if $.Values.permissioning.accounts.enabled }}
+        # Besu persists the accounts allowlist back to its config file, so the
+        # file must be writable — a ConfigMap mount is read-only and Besu would
+        # fail at startup with ERROR_ALLOWLIST_PERSIST_FAIL. Stage the ConfigMap
+        # (read-only source) onto a writable emptyDir before Besu starts.
+        - name: stage-permissions
+          image: {{ $.Values.permissioning.accounts.stagingImage }}
+          imagePullPolicy: {{ $.Values.node.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              cp /etc/permissions-src/accounts-allowlist.toml /etc/permissions/accounts-allowlist.toml
+              chmod 0777 /etc/permissions
+              chmod 0666 /etc/permissions/accounts-allowlist.toml
+          volumeMounts:
+            - name: permissions-src
+              mountPath: /etc/permissions-src
+              readOnly: true
+            - name: permissions
+              mountPath: /etc/permissions
+      {{- end }}
       {{- end }}
       containers:
         - name: {{ $.Release.Name }}-validator{{ $n }}
@@ -142,8 +166,13 @@ spec:
             - name: config-toml
               mountPath: /etc/besu
               readOnly: true
+            {{- if $.Values.permissioning.accounts.enabled }}
+            - name: permissions
+              mountPath: /etc/permissions
+            {{- else }}
             - name: node-permissions
               mountPath: /etc/permissions
+            {{- end }}
             - name: data
               mountPath: /data
           ports:
@@ -204,9 +233,17 @@ spec:
         - name: config-toml
           configMap:
             name: {{ $.Release.Name }}-config-toml
+        {{- if $.Values.permissioning.accounts.enabled }}
+        - name: permissions-src
+          configMap:
+            name: {{ $.Release.Name }}-node-permissions
+        - name: permissions
+          emptyDir: {}
+        {{- else }}
         - name: node-permissions
           configMap:
             name: {{ $.Release.Name }}-node-permissions
+        {{- end }}
         {{- if not $.Values.node.storage.persistence }}
         - name: data
           emptyDir:

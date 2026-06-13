@@ -78,8 +78,10 @@ data:
     #permissions-nodes-config-file="/etc/permissions/nodes-allowlist.yml"
     {{- if .Values.permissioning.accounts.enabled }}
     # Account permissioning (transaction authorization) — file-based allowlist.
-    # Only accounts in accounts-allowlist.toml may submit transactions; the file
-    # is reloadable at runtime via perm_reloadPermissionsFromFile (no restart).
+    # Only accounts in accounts-allowlist.toml may submit transactions. The path
+    # is the WRITABLE staged copy seeded by the stage-permissions init container
+    # — Besu persists the allowlist to this file, so a read-only ConfigMap mount
+    # here fails at startup with ERROR_ALLOWLIST_PERSIST_FAIL.
     permissions-accounts-config-file-enabled=true
     permissions-accounts-config-file="/etc/permissions/accounts-allowlist.toml"
     {{- end }}
