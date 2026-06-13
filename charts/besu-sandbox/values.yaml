@@ -242,6 +242,28 @@ p2p:
   xdnsEnabled: true
   xdnsUpdateEnabled: true
 
+# Account permissioning (transaction authorization). When enabled, only accounts
+# in `allowlist` may submit transactions; all others are rejected by the node.
+# File-based: the allowlist can be updated at runtime by editing the file and
+# calling perm_reloadPermissionsFromFile (no restart). OFF by default.
+#
+# Enabling on a running network needs a manual, one-at-a-time rolling restart of
+# the validator StatefulSets (the flag is read only at node startup, and each
+# validator is its own StatefulSet — restarting all at once is quorum loss). See
+# doc/account-permissioning.md. Runtime allowlist edits do NOT need a restart.
+#
+# When enabled, PERM is appended to the derived rpc-http-api / rpc-ws-api so the
+# perm_* methods (getAccountsAllowlist, add/removeAccountsToAllowlist,
+# reloadPermissionsFromFile) are available.
+permissioning:
+  accounts:
+    enabled: false
+    # Lowercase or checksummed 0x addresses permitted to submit transactions.
+    # When enabling on an existing network, this MUST include every account that
+    # legitimately sends transactions (e.g. the genesis-funded / treasury
+    # accounts) or they will start being rejected.
+    allowlist: []
+
 # Unified round-robin RPC Service — load-balances HTTP/WS across all Ready
 # validators. Use this for apps and MetaMask, not <release>-validator1..N (those
 # target a single validator and are mainly for P2P / debugging).

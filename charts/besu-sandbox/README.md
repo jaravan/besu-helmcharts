@@ -377,6 +377,18 @@ Regenerate keys and `genesis.extraData` together — [creating-validators-and-va
 | `networkPolicy.enabled` | bool            | `false` | Intra-namespace isolation for validator pods + kube-system DNS egress.     |
 | `extraManifests`        | list of strings | `[]`    | Extra YAML documents, `tpl`-rendered (Ingress, cross-ns NetworkPolicy, …). |
 
+### `permissioning` — account transaction authorization
+
+| Key                                     | Type            | Default | Description                                                                                                       |
+| --------------------------------------- | --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `permissioning.accounts.enabled`        | bool            | `false` | File-based account permissioning. When `true`, only allowlisted accounts may submit transactions; adds the `permissions-accounts-config-file-*` flags, renders `accounts-allowlist.toml`, and appends `PERM` to the derived RPC APIs. |
+| `permissioning.accounts.allowlist`      | list of `0x…`   | `[]`    | Accounts permitted to submit transactions. Must include genesis-funded / treasury accounts when enabling on an existing network. |
+
+Enabling on a running network needs a **manual, one-at-a-time rolling restart**
+(the flag is read only at startup; restarting all validators at once is quorum
+loss). Runtime allowlist changes need no restart. Full procedure and `perm_*`
+usage: **[doc/account-permissioning.md](doc/account-permissioning.md)**.
+
 ### `helmTest`
 
 | Key                                   | Type   | Default                  | Description                                                                  |

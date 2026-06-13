@@ -86,27 +86,41 @@ validator set. Values live in genesis.extraData.
 
 {{/*
 Default rpc-http-api list for the active consensus (override via rpc.http.api).
+PERM is appended to the derived list when account permissioning is enabled, so
+perm_* methods are reachable; an explicit rpc.http.api override is used as-is.
 */}}
 {{- define "besu-sandbox.rpcHttpApi" -}}
 {{- if .Values.rpc.http.api -}}
 {{- .Values.rpc.http.api | toJson -}}
-{{- else if eq (include "besu-sandbox.consensus" .) "ibft2" -}}
-{{- list "DEBUG" "ETH" "ADMIN" "WEB3" "IBFT" "NET" "EEA" | toJson -}}
 {{- else -}}
-{{- list "DEBUG" "ETH" "ADMIN" "WEB3" "QBFT" "NET" | toJson -}}
+{{- $api := list "DEBUG" "ETH" "ADMIN" "WEB3" "QBFT" "NET" -}}
+{{- if eq (include "besu-sandbox.consensus" .) "ibft2" -}}
+{{- $api = list "DEBUG" "ETH" "ADMIN" "WEB3" "IBFT" "NET" "EEA" -}}
+{{- end -}}
+{{- if eq (include "besu-sandbox.accountPermissioningEnabled" .) "true" -}}
+{{- $api = append $api "PERM" -}}
+{{- end -}}
+{{- $api | toJson -}}
 {{- end -}}
 {{- end }}
 
 {{/*
 Default rpc-ws-api list for the active consensus (override via rpc.ws.api).
+PERM is appended to the derived list when account permissioning is enabled; an
+explicit rpc.ws.api override is used as-is.
 */}}
 {{- define "besu-sandbox.rpcWsApi" -}}
 {{- if .Values.rpc.ws.api -}}
 {{- .Values.rpc.ws.api | toJson -}}
-{{- else if eq (include "besu-sandbox.consensus" .) "ibft2" -}}
-{{- list "DEBUG" "ETH" "ADMIN" "WEB3" "IBFT" "NET" "EEA" | toJson -}}
 {{- else -}}
-{{- list "DEBUG" "ETH" "ADMIN" "WEB3" "QBFT" "NET" | toJson -}}
+{{- $api := list "DEBUG" "ETH" "ADMIN" "WEB3" "QBFT" "NET" -}}
+{{- if eq (include "besu-sandbox.consensus" .) "ibft2" -}}
+{{- $api = list "DEBUG" "ETH" "ADMIN" "WEB3" "IBFT" "NET" "EEA" -}}
+{{- end -}}
+{{- if eq (include "besu-sandbox.accountPermissioningEnabled" .) "true" -}}
+{{- $api = append $api "PERM" -}}
+{{- end -}}
+{{- $api | toJson -}}
 {{- end -}}
 {{- end }}
 
@@ -335,4 +349,25 @@ nodes-allowlist=[
 {{- end }}
 
 ]
+{{- end -}}
+
+{{/*
+Besu account-permissioning allowlist (for accounts-allowlist.toml). Only accounts
+listed here may submit transactions when permissioning.accounts.enabled=true.
+*/}}
+{{- define "besu-sandbox.accountsAllowlist" -}}
+accounts-allowlist=[
+{{- range $i, $a := .Values.permissioning.accounts.allowlist }}
+  {{ $a | quote }}{{- if lt (add $i 1) (len $.Values.permissioning.accounts.allowlist) }},{{ end }}
+{{- end }}
+]
+{{- end -}}
+
+{{/*
+Whether account permissioning (transaction authorization) is enabled.
+*/}}
+{{- define "besu-sandbox.accountPermissioningEnabled" -}}
+{{- $p := .Values.permissioning | default dict -}}
+{{- $a := $p.accounts | default dict -}}
+{{- $a.enabled | default false | toString -}}
 {{- end -}}

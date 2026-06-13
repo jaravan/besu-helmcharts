@@ -5,7 +5,7 @@ description: >
   sandbox (not production) with QBFT consensus by default, switchable to IBFT 2.0
   for benchmarks.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "26.6.0"
 home: https://github.com/jaravan/besu-helmcharts/tree/main/charts/besu-sandbox
 sources:

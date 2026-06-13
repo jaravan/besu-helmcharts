@@ -76,3 +76,10 @@ data:
     # Permissioning
     #permissions-nodes-config-file-enabled=false
     #permissions-nodes-config-file="/etc/permissions/nodes-allowlist.yml"
+    {{- if .Values.permissioning.accounts.enabled }}
+    # Account permissioning (transaction authorization) — file-based allowlist.
+    # Only accounts in accounts-allowlist.toml may submit transactions; the file
+    # is reloadable at runtime via perm_reloadPermissionsFromFile (no restart).
+    permissions-accounts-config-file-enabled=true
+    permissions-accounts-config-file="/etc/permissions/accounts-allowlist.toml"
+    {{- end }}
