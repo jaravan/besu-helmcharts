@@ -50,6 +50,17 @@ jobs:
       - name: helm template (sanity)
         run: helm template sbx charts/besu-sandbox -n besu-ci > /dev/null
 
+      - name: changelog in sync with Chart.yaml version
+        run: |
+          set -euo pipefail
+          chart=charts/besu-sandbox
+          ver="$(helm show chart "$chart" | awk '/^version:/{print $2}')"
+          if ! grep -qE "^## \[${ver}\]" "$chart/CHANGELOG.md"; then
+            echo "::error::No '## [${ver}]' section in $chart/CHANGELOG.md — add one for the bumped chart version."
+            exit 1
+          fi
+          echo "CHANGELOG.md has a section for version ${ver}."
+
       - name: doc-link check
         run: |
           set -euo pipefail

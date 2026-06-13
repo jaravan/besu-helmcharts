@@ -3,15 +3,15 @@ name: Release
 on:
   push:
     tags:
-      - '*/v*'   # e.g. besu-sandbox/v0.1.0, besu-production/v1.0.0
+      - "*/v*" # e.g. besu-sandbox/v0.1.0, besu-production/v1.0.0
 
 jobs:
   release:
     name: Publish ${{ github.ref_name }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create GitHub Release
-      packages: write   # push to ghcr.io
+      contents: write # create GitHub Release
+      packages: write # push to ghcr.io
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +36,32 @@ jobs:
             exit 1
           fi
 
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          set -euo pipefail
+          CHART="${{ steps.tag.outputs.chart }}"
+          VERSION="${{ steps.tag.outputs.version }}"
+          FILE="charts/${CHART}/CHANGELOG.md"
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: ${FILE} not found — add a changelog before releasing." >&2
+            exit 1
+          fi
+          # Lines between "## [VERSION]" and the next "## [" heading.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" {grab=1; next}
+            grab && /^## \[/ {grab=0}
+            grab {print}
+          ' "$FILE" > /tmp/release-notes.md
+          # Strip leading/trailing blank lines.
+          sed -i -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba}' /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "ERROR: no '## [${VERSION}]' section in ${FILE} — add one before releasing." >&2
+            exit 1
+          fi
+          echo "Release notes for ${VERSION}:"
+          cat /tmp/release-notes.md
+
       - name: Log in to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
@@ -55,5 +81,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.tag.outputs.chart }} v${{ steps.tag.outputs.version }}
+          # Curated CHANGELOG section first; auto-generated commit/PR notes are
+          # appended below it by generate_release_notes.
+          body_path: /tmp/release-notes.md
           generate_release_notes: true
           files: /tmp/charts/${{ steps.tag.outputs.chart }}-*.tgz
